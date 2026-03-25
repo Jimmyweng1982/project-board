@@ -100,6 +100,28 @@ header h1 { font-size: 1.2rem; }
 }
 .upload-btn-large:hover { background: #c73650; }
 
+/* ── Sheet Section (collapsible) ── */
+.sheet-section { margin-bottom: 10px; }
+
+.sheet-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #0f3460;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+.sheet-section-header:hover { background: #1a4a8a; }
+
+.sheet-toggle { font-size: 0.75rem; color: #e94560; width: 12px; }
+.sheet-section-name { font-size: 0.95rem; font-weight: 600; flex: 1; }
+.sheet-section-count { font-size: 0.78rem; color: #888; }
+
+.sheet-section-body { padding: 12px 4px 4px; }
+
 /* ── Customer Group ── */
 .customer-group { margin-bottom: 24px; }
 .customer-header {

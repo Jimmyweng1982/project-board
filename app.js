@@ -1,7 +1,7 @@
 // ===== Global State =====
 let workbook = null;
-let allProjects = {};
-let currentSheet = '';
+let allProjects = {};      // { tabKey: [project, ...] }
+let collapsedSheets = {};  // { tabKey: true/false }
 let currentCustomer = 'all';
 
 // Active date popup
@@ -73,10 +73,9 @@ fileInput.addEventListener('change', async (e) => {
   if (errors.length) alert('部分檔案讀取失敗：\n' + errors.join('\n'));
   if (Object.keys(allProjects).length === 0) return;
 
-  currentSheet    = Object.keys(allProjects)[0];
   currentCustomer = 'all';
+  collapsedSheets = {}; // all expanded by default
 
-  renderSheetTabs();
   renderCustomerFilter();
   renderBoard();
   exportBtn.style.display = 'inline-block';
@@ -196,27 +195,14 @@ function inputToDate(val) {
   return `${p[0]}/${parseInt(p[1])}/${parseInt(p[2])}`;
 }
 
-// ===== Render Sheet Tabs =====
-function renderSheetTabs() {
-  sheetTabsEl.innerHTML = '';
-  Object.keys(allProjects).forEach(name => {
-    const tab = document.createElement('div');
-    tab.className = 'sheet-tab' + (name === currentSheet ? ' active' : '');
-    tab.textContent = name;
-    tab.addEventListener('click', () => {
-      currentSheet = name; currentCustomer = 'all';
-      renderSheetTabs(); renderCustomerFilter(); renderBoard();
-    });
-    sheetTabsEl.appendChild(tab);
-  });
-}
-
-// ===== Render Customer Filter =====
+// ===== Render Customer Filter (across all sheets) =====
 function renderCustomerFilter() {
   customerFilterEl.innerHTML = '';
-  const customers = [...new Set((allProjects[currentSheet] || []).map(p => p.customer))];
+  const allCustomers = [...new Set(
+    Object.values(allProjects).flat().map(p => p.customer)
+  )];
   customerFilterEl.appendChild(createFilterBtn('全部', 'all'));
-  customers.forEach(c => customerFilterEl.appendChild(createFilterBtn(c, c)));
+  allCustomers.forEach(c => customerFilterEl.appendChild(createFilterBtn(c, c)));
 }
 
 function createFilterBtn(label, value) {
@@ -231,38 +217,77 @@ function createFilterBtn(label, value) {
   return btn;
 }
 
-// ===== Render Board =====
+// ===== Render Board (all sheets, collapsible) =====
 function renderBoard() {
-  const projects = allProjects[currentSheet] || [];
-  if (projects.length === 0) {
-    boardEl.innerHTML = '<div class="empty-state"><p style="color:#aaa;">此工作表沒有可辨識的專案資料</p></div>';
+  const sheetKeys = Object.keys(allProjects);
+  if (sheetKeys.length === 0) {
+    boardEl.innerHTML = '<div class="empty-state"><p style="color:#aaa;">請匯入 Excel 檔案</p></div>';
     return;
   }
 
-  const filtered = currentCustomer === 'all'
-    ? projects
-    : projects.filter(p => p.customer === currentCustomer);
-
-  const grouped = {};
-  filtered.forEach(p => {
-    (grouped[p.customer] = grouped[p.customer] || []).push(p);
-  });
-
   boardEl.innerHTML = '';
-  Object.entries(grouped).forEach(([customer, projs]) => {
-    const group = document.createElement('div');
-    group.className = 'customer-group';
-    group.innerHTML = `
-      <div class="customer-header">
-        <h2>${escapeHtml(customer)}</h2>
-        <span class="project-count">${projs.length} 個專案</span>
-      </div>
+
+  sheetKeys.forEach(tabKey => {
+    const projects = allProjects[tabKey] || [];
+    const filtered = currentCustomer === 'all'
+      ? projects
+      : projects.filter(p => p.customer === currentCustomer);
+
+    // Sheet section
+    const section   = document.createElement('div');
+    section.className = 'sheet-section';
+
+    const isCollapsed = !!collapsedSheets[tabKey];
+
+    // Sheet header (click to toggle)
+    const sheetHeader = document.createElement('div');
+    sheetHeader.className = 'sheet-section-header';
+    sheetHeader.innerHTML = `
+      <span class="sheet-toggle">${isCollapsed ? '▶' : '▼'}</span>
+      <span class="sheet-section-name">${escapeHtml(tabKey)}</span>
+      <span class="sheet-section-count">${filtered.length} 個專案</span>
     `;
-    const grid = document.createElement('div');
-    grid.className = 'cards-grid';
-    projs.forEach(proj => grid.appendChild(createProjectCard(proj)));
-    group.appendChild(grid);
-    boardEl.appendChild(group);
+    sheetHeader.addEventListener('click', () => {
+      collapsedSheets[tabKey] = !collapsedSheets[tabKey];
+      renderBoard();
+    });
+
+    section.appendChild(sheetHeader);
+
+    if (!isCollapsed) {
+      const body = document.createElement('div');
+      body.className = 'sheet-section-body';
+
+      if (filtered.length === 0) {
+        body.innerHTML = '<p style="color:#555;padding:10px 0;font-size:0.85rem;">無符合條件的專案</p>';
+      } else {
+        // Group by customer within this sheet
+        const grouped = {};
+        filtered.forEach(p => {
+          (grouped[p.customer] = grouped[p.customer] || []).push(p);
+        });
+
+        Object.entries(grouped).forEach(([customer, projs]) => {
+          const group = document.createElement('div');
+          group.className = 'customer-group';
+          group.innerHTML = `
+            <div class="customer-header">
+              <h2>${escapeHtml(customer)}</h2>
+              <span class="project-count">${projs.length} 個專案</span>
+            </div>
+          `;
+          const grid = document.createElement('div');
+          grid.className = 'cards-grid';
+          projs.forEach(proj => grid.appendChild(createProjectCard(proj)));
+          group.appendChild(grid);
+          body.appendChild(group);
+        });
+      }
+
+      section.appendChild(body);
+    }
+
+    boardEl.appendChild(section);
   });
 }
 
