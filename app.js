@@ -406,7 +406,7 @@ function openDatePopup(anchorEl, currentDate, label, onApply) {
   popup.className = 'date-popup';
   popup.innerHTML = `
     <label>${label} 日期</label>
-    <input type="date" value="${dateToInput(currentDate)}">
+    <input type="date" lang="en" value="${dateToInput(currentDate)}">
     <div class="date-popup-actions">
       <button class="btn-clear">清除</button>
       <button class="btn-apply">確定</button>
