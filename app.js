@@ -1,5 +1,5 @@
-// ===== 全域狀態 =====
-let workbook = null;       // 原始 Excel workbook
+// ===== Global State =====
+let workbook = null;
 let allProjects = {};      // { sheetName: [project, ...] }
 let currentSheet = '';
 let currentCustomer = 'all';
@@ -13,8 +13,11 @@ const STAGES = [
   'Correlation & Optimize',
 ];
 
-// 階段對應的 Excel 欄位索引 (0-based: C=2, D=3, E=4, F=5, G=6, H=7)
-const STAGE_COLS = [2, 3, 4, 5, 6, 7];
+// Column indices (0-based: A=0, B=1, C=2, ...)
+const COL_CUSTOMER = 2;   // Col C: Customer
+const COL_PROJECT = 3;    // Col D: Project name / POR / Actual
+const STAGE_COLS = [4, 5, 6, 7, 8, 9];  // Col E~J: 6 stages
+const COL_RELEASE = 10;   // Col K: Customer Release
 
 // ===== DOM =====
 const fileInput = document.getElementById('excel-file');
@@ -23,7 +26,7 @@ const customerFilterEl = document.getElementById('customer-filter');
 const boardEl = document.getElementById('board');
 const exportBtn = document.getElementById('export-btn');
 
-// ===== 檔案匯入 =====
+// ===== File Import =====
 fileInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -46,18 +49,18 @@ fileInput.addEventListener('change', async (e) => {
   exportBtn.style.display = 'inline-block';
 });
 
-// ===== Excel 解析 =====
+// ===== Excel Parsing =====
 function parseSheet(sheet) {
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
   const projects = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    if (!row || !row[1]) continue;
+    if (!row || !row[COL_PROJECT]) continue;
 
-    const cellB = String(row[1]);
-    // 找到包含 POR 的列 → 上一列是百分比，下一列是 Actual
-    if (cellB.toUpperCase().includes('POR')) {
+    const cellD = String(row[COL_PROJECT]);
+    // Find rows containing "POR" -> previous row has percentages, next row has Actual
+    if (cellD.toUpperCase().includes('POR')) {
       const pctRow = findPrevDataRow(rows, i);
       const actRow = rows[i + 1];
 
@@ -73,9 +76,9 @@ function parseSheet(sheet) {
 function findPrevDataRow(rows, fromIndex) {
   for (let i = fromIndex - 1; i >= 0; i--) {
     const row = rows[i];
-    if (row && row[1] && !String(row[1]).toUpperCase().includes('POR')
-        && !String(row[1]).toLowerCase().includes('actual')
-        && !String(row[1]).toLowerCase().includes('forecast')) {
+    if (row && row[COL_PROJECT] && !String(row[COL_PROJECT]).toUpperCase().includes('POR')
+        && !String(row[COL_PROJECT]).toLowerCase().includes('actual')
+        && !String(row[COL_PROJECT]).toLowerCase().includes('forecast')) {
       return row;
     }
   }
@@ -83,12 +86,12 @@ function findPrevDataRow(rows, fromIndex) {
 }
 
 function buildProject(pctRow, porRow, actRow) {
-  const customer = String(pctRow[0] || '').trim() || '未分類';
-  const projectName = String(pctRow[1] || '').trim();
-  const customerRelease = String(pctRow[8] || pctRow[STAGE_COLS.length + 2] || '').trim();
+  const customer = String(pctRow[COL_CUSTOMER] || '').trim() || 'Uncategorized';
+  const projectName = String(pctRow[COL_PROJECT] || '').trim();
+  const customerRelease = String(pctRow[COL_RELEASE] || '').trim();
 
-  // 解析 POR exit 日期
-  const porText = String(porRow[1] || '');
+  // Parse POR exit date
+  const porText = String(porRow[COL_PROJECT] || '');
   const porExitMatch = porText.match(/\d{4}\/\d{1,2}\/\d{1,2}/);
   const porExitDate = porExitMatch ? porExitMatch[0] : '';
 
@@ -110,7 +113,7 @@ function buildProject(pctRow, porRow, actRow) {
 function parsePercent(val) {
   if (val === null || val === undefined || val === '') return 0;
   if (typeof val === 'number') {
-    // Excel 可能存 0~1 的小數或 0~100 的整數
+    // Excel may store as 0~1 decimal or 0~100 integer
     return val <= 1 && val > 0 ? Math.round(val * 100) : Math.round(val);
   }
   const str = String(val).trim();
@@ -134,7 +137,7 @@ function formatDate(d) {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-// ===== 日期比較 → 顏色 =====
+// ===== Date Comparison -> Color =====
 function getStatusColor(porDateStr, actualDateStr, percent) {
   if (percent >= 100) return 'green';
   if (!porDateStr || !actualDateStr) return 'green';
@@ -158,7 +161,7 @@ function parseDateObj(str) {
   return new Date(parts[0], parts[1] - 1, parts[2]);
 }
 
-// ===== 渲染 Sheet 頁籤 =====
+// ===== Render Sheet Tabs =====
 function renderSheetTabs() {
   sheetTabsEl.innerHTML = '';
   Object.keys(allProjects).forEach(name => {
@@ -176,13 +179,13 @@ function renderSheetTabs() {
   });
 }
 
-// ===== 渲染客戶篩選 =====
+// ===== Render Customer Filter =====
 function renderCustomerFilter() {
   customerFilterEl.innerHTML = '';
   const projects = allProjects[currentSheet] || [];
   const customers = [...new Set(projects.map(p => p.customer))];
 
-  const allBtn = createFilterBtn('全部', 'all');
+  const allBtn = createFilterBtn('All', 'all');
   customerFilterEl.appendChild(allBtn);
 
   customers.forEach(c => {
@@ -202,11 +205,11 @@ function createFilterBtn(label, value) {
   return btn;
 }
 
-// ===== 渲染看板 =====
+// ===== Render Board =====
 function renderBoard() {
   const projects = allProjects[currentSheet] || [];
   if (projects.length === 0) {
-    boardEl.innerHTML = '<div class="empty-state"><p>此工作表沒有可辨識的專案資料</p></div>';
+    boardEl.innerHTML = '<div class="empty-state"><p>No recognizable project data found in this sheet</p></div>';
     return;
   }
 
@@ -214,7 +217,7 @@ function renderBoard() {
     ? projects
     : projects.filter(p => p.customer === currentCustomer);
 
-  // 依客戶分組
+  // Group by customer
   const grouped = {};
   filtered.forEach(p => {
     if (!grouped[p.customer]) grouped[p.customer] = [];
@@ -230,7 +233,7 @@ function renderBoard() {
     group.innerHTML = `
       <div class="customer-header">
         <h2>${escapeHtml(customer)}</h2>
-        <span class="project-count">${projs.length} 個專案</span>
+        <span class="project-count">${projs.length} project${projs.length > 1 ? 's' : ''}</span>
       </div>
     `;
 
@@ -255,7 +258,7 @@ function createProjectCard(proj, projIdx) {
         ${proj.porExitDate ? `<span style="color:#666; font-size:0.8rem; margin-left:12px;">POR Exit: ${escapeHtml(proj.porExitDate)}</span>` : ''}
       </div>
       <div class="project-avg">
-        <span>平均進度</span>
+        <span>Avg. Progress</span>
         <div class="avg-bar-container">
           <div class="avg-bar-fill progress-${avgColor}" style="width:${proj.avg}%;"></div>
         </div>
@@ -299,14 +302,14 @@ function createStageItem(proj, stage, stageIdx) {
     </div>
   `;
 
-  // 拖動進度條
+  // Draggable progress bar
   const bar = item.querySelector('.progress-bar');
   setupDrag(bar, stage, proj);
 
   return item;
 }
 
-// ===== 進度條拖動 =====
+// ===== Progress Bar Drag =====
 function setupDrag(barEl, stage, proj) {
   let dragging = false;
 
@@ -316,15 +319,15 @@ function setupDrag(barEl, stage, proj) {
     let pct = Math.round(((clientX - rect.left) / rect.width) * 100);
     pct = Math.max(0, Math.min(100, pct));
 
-    // 吸附到 5 的倍數
+    // Snap to multiples of 5
     pct = Math.round(pct / 5) * 5;
 
     stage.percent = pct;
 
-    // 更新平均
+    // Update average
     proj.avg = Math.round(proj.stages.reduce((s, st) => s + st.percent, 0) / proj.stages.length);
 
-    // 更新 UI
+    // Update UI
     const fill = barEl.querySelector('.progress-fill');
     const text = barEl.querySelector('.progress-text');
     const color = getStatusColor(stage.porDate, stage.actualDate, pct);
@@ -333,7 +336,7 @@ function setupDrag(barEl, stage, proj) {
     fill.className = 'progress-fill progress-' + color;
     text.textContent = pct + '%';
 
-    // 更新專案平均進度條
+    // Update project average bar
     const card = barEl.closest('.project-card');
     if (card) {
       const avgFill = card.querySelector('.avg-bar-fill');
@@ -368,7 +371,7 @@ function setupDrag(barEl, stage, proj) {
   document.addEventListener('touchend', () => { dragging = false; });
 }
 
-// ===== 專案平均顏色 =====
+// ===== Project Average Color =====
 function getAvgColor(proj) {
   const hasRed = proj.stages.some(s => getStatusColor(s.porDate, s.actualDate, s.percent) === 'red');
   const hasYellow = proj.stages.some(s => getStatusColor(s.porDate, s.actualDate, s.percent) === 'yellow');
@@ -377,11 +380,11 @@ function getAvgColor(proj) {
   return 'green';
 }
 
-// ===== 匯出 =====
+// ===== Export =====
 exportBtn.addEventListener('click', () => {
   if (!workbook) return;
 
-  // 把修改後的百分比寫回
+  // Write modified percentages back
   const projects = allProjects[currentSheet] || [];
   const sheet = workbook.Sheets[currentSheet];
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
@@ -389,10 +392,9 @@ exportBtn.addEventListener('click', () => {
   let projIdx = 0;
   for (let i = 0; i < rows.length && projIdx < projects.length; i++) {
     const row = rows[i];
-    if (!row || !row[1]) continue;
-    const cellB = String(row[1]).toUpperCase();
-    if (cellB.includes('POR')) {
-      // 百分比在 POR 的前一列
+    if (!row || !row[COL_PROJECT]) continue;
+    const cellD = String(row[COL_PROJECT]).toUpperCase();
+    if (cellD.includes('POR')) {
       const pctRowIdx = findPrevDataRowIndex(rows, i);
       if (pctRowIdx >= 0) {
         const proj = projects[projIdx];
@@ -415,16 +417,16 @@ exportBtn.addEventListener('click', () => {
 function findPrevDataRowIndex(rows, fromIndex) {
   for (let i = fromIndex - 1; i >= 0; i--) {
     const row = rows[i];
-    if (row && row[1] && !String(row[1]).toUpperCase().includes('POR')
-        && !String(row[1]).toLowerCase().includes('actual')
-        && !String(row[1]).toLowerCase().includes('forecast')) {
+    if (row && row[COL_PROJECT] && !String(row[COL_PROJECT]).toUpperCase().includes('POR')
+        && !String(row[COL_PROJECT]).toLowerCase().includes('actual')
+        && !String(row[COL_PROJECT]).toLowerCase().includes('forecast')) {
       return i;
     }
   }
   return -1;
 }
 
-// ===== 工具 =====
+// ===== Utility =====
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;

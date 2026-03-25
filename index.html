@@ -1,34 +1,34 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>專案管理看板</title>
+  <title>Project Management Board</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
   <header>
-    <h1>專案管理看板</h1>
+    <h1>Project Management Board</h1>
     <div class="header-actions">
-      <label class="upload-btn" for="excel-file">匯入 Excel</label>
-      <input type="file" id="excel-file" accept=".xlsx,.xls" hidden>
-      <button id="export-btn" class="export-btn" style="display:none;">匯出 Excel</button>
+      <label class="upload-btn" for="excel-file">Import Excel</label>
+      <input type="file" id="excel-file" accept=".xlsx,.xls,.xlsm" hidden>
+      <button id="export-btn" class="export-btn" style="display:none;">Export Excel</button>
     </div>
   </header>
 
-  <!-- Sheet 頁籤 -->
+  <!-- Sheet tabs -->
   <div class="sheet-tabs" id="sheet-tabs"></div>
 
-  <!-- 客戶篩選 -->
+  <!-- Customer filter -->
   <div class="customer-filter" id="customer-filter"></div>
 
   <main class="board" id="board">
     <div class="empty-state" id="empty-state">
       <div class="upload-prompt">
         <div class="upload-icon">&#128194;</div>
-        <p>請匯入 Excel 檔案以顯示專案進度</p>
-        <label class="upload-btn-large" for="excel-file">選擇檔案</label>
+        <p>Import an Excel file to display project progress</p>
+        <label class="upload-btn-large" for="excel-file">Choose File</label>
       </div>
     </div>
   </main>
