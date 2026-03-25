@@ -1,8 +1,11 @@
 // ===== Global State =====
 let workbook = null;
-let allProjects = {};      // { sheetName: [project, ...] }
+let allProjects = {};
 let currentSheet = '';
 let currentCustomer = 'all';
+
+// Active date popup
+let activePopup = null;
 
 const STAGES = [
   'Definition & Planning',
@@ -13,47 +16,44 @@ const STAGES = [
   'Correlation & Optimize',
 ];
 
-// Column indices (0-based: A=0, B=1, C=2, ...)
-const COL_CUSTOMER = 2;   // Col C: Customer (tester)
-const COL_PROJECT  = 3;   // Col D: Project name / POR / Actual
-const STAGE_COLS   = [4, 5, 6, 7, 8, 9]; // Col E~J: 6 stages
-const COL_RELEASE  = 10;  // Col K: Customer Release
+const COL_CUSTOMER = 2;
+const COL_PROJECT  = 3;
+const STAGE_COLS   = [4, 5, 6, 7, 8, 9];
+const COL_RELEASE  = 10;
 
 // ===== DOM =====
-const fileInput      = document.getElementById('excel-file');
-const sheetTabsEl    = document.getElementById('sheet-tabs');
+const fileInput        = document.getElementById('excel-file');
+const sheetTabsEl      = document.getElementById('sheet-tabs');
 const customerFilterEl = document.getElementById('customer-filter');
-const boardEl        = document.getElementById('board');
-const exportBtn      = document.getElementById('export-btn');
+const boardEl          = document.getElementById('board');
+const exportBtn        = document.getElementById('export-btn');
+
+// Close popup when clicking outside
+document.addEventListener('click', (e) => {
+  if (activePopup && !activePopup.contains(e.target)) {
+    closePopup();
+  }
+});
 
 // ===== File Import =====
 fileInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
-
   try {
     const data = await file.arrayBuffer();
-
-    // xlsm needs cellDates + bookVBA:false to avoid macro parse errors
-    workbook = XLSX.read(data, {
-      cellDates: true,
-      cellNF: false,
-      cellText: false,
-      bookVBA: false,
-    });
+    workbook = XLSX.read(data, { cellDates: true, cellNF: false, cellText: false, bookVBA: false });
 
     allProjects = {};
     workbook.SheetNames.forEach(name => {
       allProjects[name] = parseSheet(workbook.Sheets[name]);
     });
 
-    currentSheet = workbook.SheetNames[0];
+    currentSheet    = workbook.SheetNames[0];
     currentCustomer = 'all';
 
     renderSheetTabs();
     renderCustomerFilter();
     renderBoard();
-
     exportBtn.style.display = 'inline-block';
   } catch (err) {
     alert('讀取 Excel 失敗：' + err.message);
@@ -67,51 +67,32 @@ function parseSheet(sheet) {
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    if (!row) continue;
-
-    const cellD = row[COL_PROJECT];
-    if (!cellD) continue;
-
-    const cellDStr = String(cellD).toUpperCase();
-
-    // POR row detected → project row is above, actual row is below
-    if (cellDStr.includes('POR')) {
+    if (!row || !row[COL_PROJECT]) continue;
+    if (String(row[COL_PROJECT]).toUpperCase().includes('POR')) {
       const pctRowIdx = findPrevDataRowIndex(rows, i);
       if (pctRowIdx < 0) continue;
-
-      const pctRow = rows[pctRowIdx];
-      const actRow = rows[i + 1] || [];
-
-      projects.push(buildProject(pctRow, row, actRow));
+      projects.push(buildProject(rows[pctRowIdx], row, rows[i + 1] || []));
     }
   }
-
   return projects;
 }
 
 function findPrevDataRowIndex(rows, fromIndex) {
   for (let i = fromIndex - 1; i >= 0; i--) {
     const row = rows[i];
-    if (!row) continue;
-    const d = row[COL_PROJECT];
-    if (!d) continue;
-    const s = String(d).toLowerCase();
-    if (!s.includes('por') && !s.includes('actual') && !s.includes('forecast')) {
-      return i;
-    }
+    if (!row || !row[COL_PROJECT]) continue;
+    const s = String(row[COL_PROJECT]).toLowerCase();
+    if (!s.includes('por') && !s.includes('actual') && !s.includes('forecast')) return i;
   }
   return -1;
 }
 
 function buildProject(pctRow, porRow, actRow) {
-  const customer     = String(pctRow[COL_CUSTOMER] || '').trim() || 'Uncategorized';
-  const projectName  = String(pctRow[COL_PROJECT]  || '').trim();
-  const customerRelease = String(pctRow[COL_RELEASE] || '').trim();
-
-  // POR exit date is embedded in the text of col D of the POR row
-  const porText = String(porRow[COL_PROJECT] || '');
-  const porExitMatch = porText.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-  const porExitDate  = porExitMatch ? `${porExitMatch[1]}/${porExitMatch[2]}/${porExitMatch[3]}` : '';
+  const customer    = String(pctRow[COL_CUSTOMER] || '').trim() || 'Uncategorized';
+  const projectName = String(pctRow[COL_PROJECT]  || '').trim();
+  const porText     = String(porRow[COL_PROJECT]  || '');
+  const m           = porText.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  const porExitDate = m ? `${m[1]}/${m[2]}/${m[3]}` : '';
 
   const stages = STAGES.map((name, idx) => {
     const col = STAGE_COLS[idx];
@@ -124,43 +105,29 @@ function buildProject(pctRow, porRow, actRow) {
   });
 
   const avg = Math.round(stages.reduce((s, st) => s + st.percent, 0) / stages.length);
-
-  return { customer, projectName, porExitDate, customerRelease, stages, avg };
+  return { customer, projectName, porExitDate, stages, avg };
 }
 
-// ===== Value Parsers =====
 function parsePercent(val) {
   if (val === null || val === undefined || val === '') return 0;
-  if (typeof val === 'number') {
-    // Stored as 0~1 decimal (percentage format) or 0~100
-    return val <= 1 ? Math.round(val * 100) : Math.round(val);
-  }
-  const str = String(val).trim().replace('%', '');
-  const match = str.match(/([\d.]+)/);
-  if (!match) return 0;
-  const num = parseFloat(match[1]);
+  if (typeof val === 'number') return val <= 1 ? Math.round(val * 100) : Math.round(val);
+  const str = String(val).replace('%', '').trim();
+  const m   = str.match(/([\d.]+)/);
+  if (!m) return 0;
+  const num = parseFloat(m[1]);
   return num <= 1 ? Math.round(num * 100) : Math.round(num);
 }
 
 function parseDate(val) {
   if (val === null || val === undefined || val === '') return '';
-
-  // JS Date object (cellDates: true)
   if (val instanceof Date) return formatDate(val);
-
-  // Excel serial number (fallback when cellDates fails)
   if (typeof val === 'number' && val > 40000) {
     const d = new Date(Math.round((val - 25569) * 86400 * 1000));
     return formatDate(d);
   }
-
   const str = String(val).trim();
-
-  // YYYY/M/D or YYYY-M-D
   const m = str.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
   if (m) return `${m[1]}/${m[2]}/${m[3]}`;
-
-  // Return as-is if it's a meaningful text (e.g. "Canceled", "Spirox")
   return str.length < 30 ? str : '';
 }
 
@@ -168,16 +135,14 @@ function formatDate(d) {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-// ===== Date Comparison → Color =====
+// ===== Status Color =====
 function getStatusColor(porDateStr, actualDateStr, percent) {
   if (percent >= 100) return 'green';
   if (!porDateStr || !actualDateStr) return 'green';
-
   const por = parseDateObj(porDateStr);
   const act = parseDateObj(actualDateStr);
   if (!por || !act) return 'green';
-
-  const diffDays = (act - por) / (1000 * 60 * 60 * 24);
+  const diffDays = (act - por) / 86400000;
   if (diffDays >= 14) return 'red';
   if (diffDays >= 7)  return 'yellow';
   return 'green';
@@ -185,9 +150,25 @@ function getStatusColor(porDateStr, actualDateStr, percent) {
 
 function parseDateObj(str) {
   if (!str) return null;
-  const parts = str.split('/').map(Number);
-  if (parts.length !== 3 || isNaN(parts[0])) return null;
-  return new Date(parts[0], parts[1] - 1, parts[2]);
+  const p = str.split('/').map(Number);
+  if (p.length !== 3 || isNaN(p[0])) return null;
+  return new Date(p[0], p[1] - 1, p[2]);
+}
+
+// Date string → value for <input type="date"> (YYYY-MM-DD)
+function dateToInput(str) {
+  if (!str) return '';
+  const p = str.split('/');
+  if (p.length !== 3) return '';
+  return `${p[0]}-${String(p[1]).padStart(2,'0')}-${String(p[2]).padStart(2,'0')}`;
+}
+
+// <input type="date"> value → display string
+function inputToDate(val) {
+  if (!val) return '';
+  const p = val.split('-');
+  if (p.length !== 3) return '';
+  return `${p[0]}/${parseInt(p[1])}/${parseInt(p[2])}`;
 }
 
 // ===== Render Sheet Tabs =====
@@ -198,11 +179,8 @@ function renderSheetTabs() {
     tab.className = 'sheet-tab' + (name === currentSheet ? ' active' : '');
     tab.textContent = name;
     tab.addEventListener('click', () => {
-      currentSheet    = name;
-      currentCustomer = 'all';
-      renderSheetTabs();
-      renderCustomerFilter();
-      renderBoard();
+      currentSheet = name; currentCustomer = 'all';
+      renderSheetTabs(); renderCustomerFilter(); renderBoard();
     });
     sheetTabsEl.appendChild(tab);
   });
@@ -211,9 +189,7 @@ function renderSheetTabs() {
 // ===== Render Customer Filter =====
 function renderCustomerFilter() {
   customerFilterEl.innerHTML = '';
-  const projects   = allProjects[currentSheet] || [];
-  const customers  = [...new Set(projects.map(p => p.customer))];
-
+  const customers = [...new Set((allProjects[currentSheet] || []).map(p => p.customer))];
   customerFilterEl.appendChild(createFilterBtn('全部', 'all'));
   customers.forEach(c => customerFilterEl.appendChild(createFilterBtn(c, c)));
 }
@@ -233,7 +209,6 @@ function createFilterBtn(label, value) {
 // ===== Render Board =====
 function renderBoard() {
   const projects = allProjects[currentSheet] || [];
-
   if (projects.length === 0) {
     boardEl.innerHTML = '<div class="empty-state"><p style="color:#aaa;">此工作表沒有可辨識的專案資料</p></div>';
     return;
@@ -243,15 +218,12 @@ function renderBoard() {
     ? projects
     : projects.filter(p => p.customer === currentCustomer);
 
-  // Group by customer
   const grouped = {};
   filtered.forEach(p => {
-    if (!grouped[p.customer]) grouped[p.customer] = [];
-    grouped[p.customer].push(p);
+    (grouped[p.customer] = grouped[p.customer] || []).push(p);
   });
 
   boardEl.innerHTML = '';
-
   Object.entries(grouped).forEach(([customer, projs]) => {
     const group = document.createElement('div');
     group.className = 'customer-group';
@@ -261,107 +233,196 @@ function renderBoard() {
         <span class="project-count">${projs.length} 個專案</span>
       </div>
     `;
-    projs.forEach(proj => group.appendChild(createProjectCard(proj)));
+    const grid = document.createElement('div');
+    grid.className = 'cards-grid';
+    projs.forEach(proj => grid.appendChild(createProjectCard(proj)));
+    group.appendChild(grid);
     boardEl.appendChild(group);
   });
 }
 
+// ===== Project Card =====
 function createProjectCard(proj) {
   const card = document.createElement('div');
   card.className = 'project-card';
-  const avgColor = getAvgColor(proj);
 
+  const avgColor = getAvgColor(proj);
   card.innerHTML = `
-    <div class="project-title-row">
-      <div>
-        <span class="project-name">${escapeHtml(proj.projectName)}</span>
-        ${proj.porExitDate ? `<span style="color:#666;font-size:0.8rem;margin-left:12px;">POR Exit: ${escapeHtml(proj.porExitDate)}</span>` : ''}
-      </div>
-      <div class="project-avg">
-        <span>平均進度</span>
+    <div class="card-header">
+      <div class="project-name"><span title="${escapeHtml(proj.projectName)}">${escapeHtml(proj.projectName)}</span></div>
+      ${proj.porExitDate ? `<span class="por-exit-badge">POR Exit: ${escapeHtml(proj.porExitDate)}</span>` : ''}
+      <div class="avg-block">
         <div class="avg-bar-container">
           <div class="avg-bar-fill progress-${avgColor}" style="width:${proj.avg}%;"></div>
         </div>
-        <strong>${proj.avg}%</strong>
+        <span class="avg-pct">${proj.avg}%</span>
       </div>
     </div>
-    <div class="stages-grid"></div>
+    <div class="stage-rows"></div>
   `;
 
-  const grid = card.querySelector('.stages-grid');
-  proj.stages.forEach((stage, idx) => grid.appendChild(createStageItem(proj, stage, idx)));
+  const stageRows = card.querySelector('.stage-rows');
+  proj.stages.forEach((stage, idx) => stageRows.appendChild(createStageRow(proj, stage, idx, card)));
   return card;
 }
 
-function createStageItem(proj, stage, stageIdx) {
-  const item = document.createElement('div');
-  item.className = 'stage-item';
+// ===== Stage Row =====
+function createStageRow(proj, stage, stageIdx, card) {
+  const row = document.createElement('div');
+  row.className = 'stage-row';
 
-  const color = getStatusColor(stage.porDate, stage.actualDate, stage.percent);
-  const warnClass = color === 'red' ? 'late-danger' : (color === 'yellow' ? 'late-warning' : '');
+  const color     = getStatusColor(stage.porDate, stage.actualDate, stage.percent);
+  const warnClass = color === 'red' ? 'late-danger' : color === 'yellow' ? 'late-warning' : '';
 
-  item.innerHTML = `
-    <div class="stage-name">${escapeHtml(stage.name)}</div>
-    <div class="progress-bar" data-stage-idx="${stageIdx}">
-      <div class="progress-fill progress-${color}" style="width:${stage.percent}%;"></div>
-      <span class="progress-text">${stage.percent}%</span>
-    </div>
-    <div class="stage-dates">
-      <div class="date-row">
-        <span class="date-label">POR</span>
-        <span class="date-value">${escapeHtml(stage.porDate || '-')}</span>
-      </div>
-      <div class="date-row">
-        <span class="date-label">Actual</span>
-        <span class="date-value ${warnClass}">${escapeHtml(stage.actualDate || '-')}</span>
-      </div>
+  // Progress bar cell
+  const barEl = document.createElement('div');
+  barEl.className = 'progress-bar';
+  barEl.innerHTML = `
+    <div class="progress-fill progress-${color}" style="width:${stage.percent}%;"></div>
+    <span class="progress-text">${stage.percent}%</span>
+  `;
+
+  // POR date chip
+  const porChip = createDateChip(stage.porDate, '', 'POR', (newDate) => {
+    stage.porDate = newDate;
+    refreshRow(row, proj, stage, card);
+  });
+
+  // Actual date chip
+  const actChip = createDateChip(stage.actualDate, warnClass, 'Actual', (newDate) => {
+    stage.actualDate = newDate;
+    refreshRow(row, proj, stage, card);
+  });
+
+  row.innerHTML = `<div class="stage-label" title="${escapeHtml(stage.name)}">${escapeHtml(stage.name)}</div>`;
+  row.appendChild(barEl);
+  row.appendChild(porChip);
+  row.appendChild(actChip);
+
+  setupDrag(barEl, stage, proj, card, row);
+  return row;
+}
+
+// Refresh a row's colors after date or percent change
+function refreshRow(row, proj, stage, card) {
+  const color     = getStatusColor(stage.porDate, stage.actualDate, stage.percent);
+  const warnClass = color === 'red' ? 'late-danger' : color === 'yellow' ? 'late-warning' : '';
+
+  const fill = row.querySelector('.progress-fill');
+  fill.className = 'progress-fill progress-' + color;
+
+  const chips = row.querySelectorAll('.date-chip');
+  // update actual chip color (2nd chip)
+  chips[1].className = 'date-chip' + (warnClass ? ' ' + warnClass : '') + (stage.actualDate ? '' : ' no-date');
+
+  refreshCardAvg(proj, card);
+}
+
+function refreshCardAvg(proj, card) {
+  proj.avg = Math.round(proj.stages.reduce((s, st) => s + st.percent, 0) / proj.stages.length);
+  const avgColor = getAvgColor(proj);
+  const fill = card.querySelector('.avg-bar-fill');
+  const pct  = card.querySelector('.avg-pct');
+  fill.style.width = proj.avg + '%';
+  fill.className   = 'avg-bar-fill progress-' + avgColor;
+  pct.textContent  = proj.avg + '%';
+}
+
+// ===== Date Chip =====
+function createDateChip(dateStr, extraClass, label, onChange) {
+  const chip = document.createElement('div');
+  const cls  = ['date-chip', extraClass, dateStr ? '' : 'no-date'].filter(Boolean).join(' ');
+  chip.className   = cls;
+  chip.textContent = dateStr || '—';
+  chip.title       = label;
+
+  chip.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openDatePopup(chip, dateStr, label, (newDate) => {
+      dateStr          = newDate;
+      chip.textContent = newDate || '—';
+      onChange(newDate);
+    });
+  });
+
+  return chip;
+}
+
+// ===== Date Popup =====
+function openDatePopup(anchorEl, currentDate, label, onApply) {
+  closePopup();
+
+  const popup = document.createElement('div');
+  popup.className = 'date-popup';
+  popup.innerHTML = `
+    <label>${label} 日期</label>
+    <input type="date" value="${dateToInput(currentDate)}">
+    <div class="date-popup-actions">
+      <button class="btn-clear">清除</button>
+      <button class="btn-apply">確定</button>
     </div>
   `;
 
-  setupDrag(item.querySelector('.progress-bar'), stage, proj);
-  return item;
+  const input = popup.querySelector('input');
+
+  popup.querySelector('.btn-clear').addEventListener('click', (e) => {
+    e.stopPropagation();
+    onApply('');
+    closePopup();
+  });
+
+  popup.querySelector('.btn-apply').addEventListener('click', (e) => {
+    e.stopPropagation();
+    onApply(inputToDate(input.value));
+    closePopup();
+  });
+
+  // Position near the chip
+  document.body.appendChild(popup);
+  const rect = anchorEl.getBoundingClientRect();
+  let top  = rect.bottom + 6;
+  let left = rect.left;
+  if (left + 200 > window.innerWidth) left = window.innerWidth - 210;
+  if (top  + 120 > window.innerHeight) top = rect.top - 126;
+  popup.style.top  = top + 'px';
+  popup.style.left = left + 'px';
+
+  activePopup = popup;
+  input.focus();
 }
 
-// ===== Progress Bar Drag =====
-function setupDrag(barEl, stage, proj) {
+function closePopup() {
+  if (activePopup) {
+    activePopup.remove();
+    activePopup = null;
+  }
+}
+
+// ===== Drag Progress Bar =====
+function setupDrag(barEl, stage, proj, card, row) {
   let dragging = false;
 
-  function updateFromEvent(e) {
-    const rect   = barEl.getBoundingClientRect();
+  function update(e) {
+    const rect    = barEl.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     let pct = Math.round(((clientX - rect.left) / rect.width) * 100);
     pct = Math.max(0, Math.min(100, Math.round(pct / 5) * 5));
-
     stage.percent = pct;
-    proj.avg = Math.round(proj.stages.reduce((s, st) => s + st.percent, 0) / proj.stages.length);
 
-    const fill  = barEl.querySelector('.progress-fill');
-    const text  = barEl.querySelector('.progress-text');
-    const color = getStatusColor(stage.porDate, stage.actualDate, pct);
-    fill.style.width  = pct + '%';
-    fill.className    = 'progress-fill progress-' + color;
-    text.textContent  = pct + '%';
-
-    const card = barEl.closest('.project-card');
-    if (card) {
-      const avgFill  = card.querySelector('.avg-bar-fill');
-      const avgText  = card.querySelector('.project-avg strong');
-      const avgColor = getAvgColor(proj);
-      avgFill.style.width = proj.avg + '%';
-      avgFill.className   = 'avg-bar-fill progress-' + avgColor;
-      avgText.textContent = proj.avg + '%';
-    }
+    barEl.querySelector('.progress-fill').style.width = pct + '%';
+    barEl.querySelector('.progress-text').textContent = pct + '%';
+    refreshRow(row, proj, stage, card);
   }
 
-  barEl.addEventListener('mousedown', e => { dragging = true; updateFromEvent(e); e.preventDefault(); });
-  barEl.addEventListener('touchstart', e => { dragging = true; updateFromEvent(e); }, { passive: true });
-  document.addEventListener('mousemove', e => { if (dragging) updateFromEvent(e); });
-  document.addEventListener('touchmove', e => { if (dragging) updateFromEvent(e); }, { passive: true });
-  document.addEventListener('mouseup',   () => { dragging = false; });
-  document.addEventListener('touchend',  () => { dragging = false; });
+  barEl.addEventListener('mousedown', e => { dragging = true; update(e); e.preventDefault(); });
+  barEl.addEventListener('touchstart', e => { dragging = true; update(e); }, { passive: true });
+  document.addEventListener('mousemove', e => { if (dragging) update(e); });
+  document.addEventListener('touchmove', e => { if (dragging) update(e); }, { passive: true });
+  document.addEventListener('mouseup',  () => { dragging = false; });
+  document.addEventListener('touchend', () => { dragging = false; });
 }
 
-// ===== Project Average Color =====
+// ===== Average Color =====
 function getAvgColor(proj) {
   if (proj.stages.some(s => getStatusColor(s.porDate, s.actualDate, s.percent) === 'red'))    return 'red';
   if (proj.stages.some(s => getStatusColor(s.porDate, s.actualDate, s.percent) === 'yellow')) return 'yellow';
@@ -371,11 +432,9 @@ function getAvgColor(proj) {
 // ===== Export =====
 exportBtn.addEventListener('click', () => {
   if (!workbook) return;
-
   const projects = allProjects[currentSheet] || [];
   const sheet    = workbook.Sheets[currentSheet];
   const rows     = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
-
   let projIdx = 0;
   for (let i = 0; i < rows.length && projIdx < projects.length; i++) {
     const row = rows[i];
@@ -383,26 +442,20 @@ exportBtn.addEventListener('click', () => {
     if (String(row[COL_PROJECT]).toUpperCase().includes('POR')) {
       const pctRowIdx = findPrevDataRowIndex(rows, i);
       if (pctRowIdx >= 0) {
-        const proj = projects[projIdx];
-        proj.stages.forEach((stage, sIdx) => {
-          const col     = STAGE_COLS[sIdx];
-          const cellRef = XLSX.utils.encode_cell({ r: pctRowIdx, c: col });
-          if (sheet[cellRef]) {
-            sheet[cellRef].v = stage.percent / 100;
-            sheet[cellRef].t = 'n';
-          }
+        projects[projIdx].stages.forEach((stage, sIdx) => {
+          const cellRef = XLSX.utils.encode_cell({ r: pctRowIdx, c: STAGE_COLS[sIdx] });
+          if (sheet[cellRef]) { sheet[cellRef].v = stage.percent / 100; sheet[cellRef].t = 'n'; }
         });
       }
       projIdx++;
     }
   }
-
   XLSX.writeFile(workbook, 'project-board-export.xlsx');
 });
 
 // ===== Utility =====
 function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
 }
