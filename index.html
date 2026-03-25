@@ -5,45 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>專案管理看板</title>
   <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
   <header>
     <h1>專案管理看板</h1>
-    <button id="add-task-btn">+ 新增任務</button>
+    <div class="header-actions">
+      <label class="upload-btn" for="excel-file">匯入 Excel</label>
+      <input type="file" id="excel-file" accept=".xlsx,.xls" hidden>
+      <button id="export-btn" class="export-btn" style="display:none;">匯出 Excel</button>
+    </div>
   </header>
 
-  <main class="board">
-    <div class="column" data-status="todo">
-      <h2>待辦</h2>
-      <div class="task-list" id="todo"></div>
-    </div>
-    <div class="column" data-status="doing">
-      <h2>進行中</h2>
-      <div class="task-list" id="doing"></div>
-    </div>
-    <div class="column" data-status="done">
-      <h2>已完成</h2>
-      <div class="task-list" id="done"></div>
-    </div>
-  </main>
+  <!-- Sheet 頁籤 -->
+  <div class="sheet-tabs" id="sheet-tabs"></div>
 
-  <!-- 新增任務的彈窗 -->
-  <div class="modal-overlay" id="modal">
-    <div class="modal">
-      <h3>新增任務</h3>
-      <input type="text" id="task-title" placeholder="任務名稱" required>
-      <textarea id="task-desc" placeholder="任務描述（選填）"></textarea>
-      <select id="task-priority">
-        <option value="low">低優先</option>
-        <option value="medium" selected>中優先</option>
-        <option value="high">高優先</option>
-      </select>
-      <div class="modal-actions">
-        <button id="cancel-btn">取消</button>
-        <button id="save-btn">儲存</button>
+  <!-- 客戶篩選 -->
+  <div class="customer-filter" id="customer-filter"></div>
+
+  <main class="board" id="board">
+    <div class="empty-state" id="empty-state">
+      <div class="upload-prompt">
+        <div class="upload-icon">&#128194;</div>
+        <p>請匯入 Excel 檔案以顯示專案進度</p>
+        <label class="upload-btn-large" for="excel-file">選擇檔案</label>
       </div>
     </div>
-  </div>
+  </main>
 
   <script src="app.js"></script>
 </body>
