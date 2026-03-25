@@ -37,31 +37,56 @@ document.addEventListener('click', (e) => {
 
 // ===== File Import =====
 fileInput.addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  try {
-    const data = await file.arrayBuffer();
-    workbook = XLSX.read(data, { cellDates: true, cellNF: false, cellText: false, bookVBA: false });
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
 
-    allProjects = {};
-    workbook.SheetNames.forEach(name => {
-      allProjects[name] = parseSheet(workbook.Sheets[name]);
-    });
+  // Reset so each import starts fresh
+  allProjects = {};
+  workbook    = null;
 
-    currentSheet    = workbook.SheetNames[0];
-    currentCustomer = 'all';
+  const errors = [];
 
-    renderSheetTabs();
-    renderCustomerFilter();
-    renderBoard();
-    exportBtn.style.display = 'inline-block';
-  } catch (err) {
-    alert('讀取 Excel 失敗：' + err.message);
+  for (const file of files) {
+    try {
+      const data = await file.arrayBuffer();
+      const wb   = XLSX.read(data, { cellDates: true, cellNF: false, cellText: false, bookVBA: false });
+
+      wb.SheetNames.forEach(sheetName => {
+        const projects = parseSheet(wb.Sheets[sheetName], wb);
+        if (projects.length === 0) return; // skip empty/unrecognized sheets
+
+        // Use "FileName - SheetName" as tab key to avoid collisions
+        const tabKey = files.length > 1
+          ? `${file.name.replace(/\.[^.]+$/, '')} › ${sheetName}`
+          : sheetName;
+
+        allProjects[tabKey] = projects;
+
+        // Keep first workbook for export reference
+        if (!workbook) workbook = wb;
+      });
+    } catch (err) {
+      errors.push(`${file.name}: ${err.message}`);
+    }
   }
+
+  if (errors.length) alert('部分檔案讀取失敗：\n' + errors.join('\n'));
+  if (Object.keys(allProjects).length === 0) return;
+
+  currentSheet    = Object.keys(allProjects)[0];
+  currentCustomer = 'all';
+
+  renderSheetTabs();
+  renderCustomerFilter();
+  renderBoard();
+  exportBtn.style.display = 'inline-block';
+
+  // Reset input so same files can be re-imported if needed
+  fileInput.value = '';
 });
 
 // ===== Excel Parsing =====
-function parseSheet(sheet) {
+function parseSheet(sheet, _wb) {
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
   const projects = [];
 
