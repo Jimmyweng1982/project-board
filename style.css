@@ -152,6 +152,20 @@ header h1 { font-size: 1.2rem; }
 }
 .project-card:hover { box-shadow: 0 2px 16px rgba(0,0,0,0.4); }
 
+/* Completed (100%) card */
+.project-card.completed { background: #1e1e1e; border-color: #333; opacity: 0.6; }
+.project-card.completed .card-header { background: #2a2a2a; }
+.project-card.completed .stage-label,
+.project-card.completed .progress-text,
+.project-card.completed .date-chip,
+.project-card.completed .project-name span,
+.project-card.completed .por-exit-badge,
+.project-card.completed .avg-pct { color: #555; }
+.project-card.completed .progress-fill { background: #444 !important; }
+.project-card.completed .avg-bar-fill  { background: #444 !important; }
+.project-card.completed .progress-bar  { background: #2a2a2a; }
+.project-card.completed .stage-item    { background: #222; }
+
 .card-header {
   display: flex;
   justify-content: space-between;

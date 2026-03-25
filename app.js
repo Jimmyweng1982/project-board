@@ -294,7 +294,7 @@ function renderBoard() {
 // ===== Project Card =====
 function createProjectCard(proj) {
   const card = document.createElement('div');
-  card.className = 'project-card';
+  card.className = 'project-card' + (proj.avg >= 100 ? ' completed' : '');
 
   const avgColor = getAvgColor(proj);
   card.innerHTML = `
