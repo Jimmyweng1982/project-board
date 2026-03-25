@@ -332,15 +332,15 @@ function refreshCardAvg(proj, card) {
 function createDateChip(dateStr, extraClass, label, onChange) {
   const chip = document.createElement('div');
   const cls  = ['date-chip', extraClass, dateStr ? '' : 'no-date'].filter(Boolean).join(' ');
-  chip.className   = cls;
-  chip.textContent = dateStr || '—';
-  chip.title       = label;
+  chip.className = cls;
+  chip.innerHTML = `<span class="date-chip-label">${escapeHtml(label)}</span><span>${dateStr || '—'}</span>`;
+  chip.title = label;
 
   chip.addEventListener('click', (e) => {
     e.stopPropagation();
     openDatePopup(chip, dateStr, label, (newDate) => {
-      dateStr          = newDate;
-      chip.textContent = newDate || '—';
+      dateStr = newDate;
+      chip.innerHTML = `<span class="date-chip-label">${escapeHtml(label)}</span><span>${newDate || '—'}</span>`;
       onChange(newDate);
     });
   });

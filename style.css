@@ -230,8 +230,21 @@ header h1 { font-size: 1.2rem; }
   white-space: nowrap;
   transition: background 0.15s, color 0.15s;
   border: 1px solid transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  line-height: 1.3;
+}
+.date-chip-label {
+  font-size: 0.6rem;
+  color: #555;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 .date-chip:hover { background: #1a2a4a; border-color: #e94560; color: #eee; }
+.date-chip:hover .date-chip-label { color: #e94560; }
 .date-chip.late-warning { color: #e9a045; }
 .date-chip.late-danger  { color: #e94560; }
 .date-chip.no-date      { color: #444; font-style: italic; }
