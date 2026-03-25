@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>專案管理看板</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>專案管理看板</h1>
+    <button id="add-task-btn">+ 新增任務</button>
+  </header>
+
+  <main class="board">
+    <div class="column" data-status="todo">
+      <h2>待辦</h2>
+      <div class="task-list" id="todo"></div>
+    </div>
+    <div class="column" data-status="doing">
+      <h2>進行中</h2>
+      <div class="task-list" id="doing"></div>
+    </div>
+    <div class="column" data-status="done">
+      <h2>已完成</h2>
+      <div class="task-list" id="done"></div>
+    </div>
+  </main>
+
+  <!-- 新增任務的彈窗 -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal">
+      <h3>新增任務</h3>
+      <input type="text" id="task-title" placeholder="任務名稱" required>
+      <textarea id="task-desc" placeholder="任務描述（選填）"></textarea>
+      <select id="task-priority">
+        <option value="low">低優先</option>
+        <option value="medium" selected>中優先</option>
+        <option value="high">高優先</option>
+      </select>
+      <div class="modal-actions">
+        <button id="cancel-btn">取消</button>
+        <button id="save-btn">儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
