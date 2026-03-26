@@ -20,6 +20,20 @@ header h1 { font-size: 1.2rem; }
 
 .header-actions { display: flex; gap: 8px; align-items: center; }
 
+.slot-link {
+  color: #ffd700;
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: rgba(255,215,0,0.1);
+  border: 1px solid rgba(255,215,0,0.3);
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+.slot-link:hover { background: rgba(255,215,0,0.2); }
+
 .upload-btn, .export-btn {
   background: #e94560;
   color: white;
