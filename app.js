@@ -1,5 +1,5 @@
 // ===== Global State =====
-let workbook = null;
+let sheetMeta = {};        // { tabKey: { wb, sheetName, fileName } }
 let allProjects = {};      // { tabKey: [project, ...] }
 let collapsedSheets = {};  // { tabKey: true/false }
 let currentCustomer = 'all';
@@ -42,14 +42,14 @@ fileInput.addEventListener('change', async (e) => {
 
   // Reset so each import starts fresh
   allProjects = {};
-  workbook    = null;
+  sheetMeta   = {};
 
   const errors = [];
 
   for (const file of files) {
     try {
       const data = await file.arrayBuffer();
-      const wb   = XLSX.read(data, { cellDates: true, cellNF: false, cellText: false, bookVBA: false });
+      const wb   = XLSX.read(data, { cellDates: true, cellNF: false, cellText: false, bookVBA: false, cellStyles: true });
 
       wb.SheetNames.forEach(sheetName => {
         const projects = parseSheet(wb.Sheets[sheetName], wb);
@@ -61,16 +61,14 @@ fileInput.addEventListener('change', async (e) => {
           : sheetName;
 
         allProjects[tabKey] = projects;
-
-        // Keep first workbook for export reference
-        if (!workbook) workbook = wb;
+        sheetMeta[tabKey]   = { wb, sheetName, fileName: file.name, originalData: data };
       });
     } catch (err) {
       errors.push(`${file.name}: ${err.message}`);
     }
   }
 
-  if (errors.length) alert('部分檔案讀取失敗：\n' + errors.join('\n'));
+  if (errors.length) alert('Some files failed to load:\n' + errors.join('\n'));
   if (Object.keys(allProjects).length === 0) return;
 
   currentCustomer = 'all';
@@ -201,7 +199,7 @@ function renderCustomerFilter() {
   const allCustomers = [...new Set(
     Object.values(allProjects).flat().map(p => p.customer)
   )];
-  customerFilterEl.appendChild(createFilterBtn('全部', 'all'));
+  customerFilterEl.appendChild(createFilterBtn('All', 'all'));
   allCustomers.forEach(c => customerFilterEl.appendChild(createFilterBtn(c, c)));
 }
 
@@ -221,7 +219,7 @@ function createFilterBtn(label, value) {
 function renderBoard() {
   const sheetKeys = Object.keys(allProjects);
   if (sheetKeys.length === 0) {
-    boardEl.innerHTML = '<div class="empty-state"><p style="color:#aaa;">請匯入 Excel 檔案</p></div>';
+    boardEl.innerHTML = '<div class="empty-state"><p style="color:#aaa;">Please import an Excel file</p></div>';
     return;
   }
 
@@ -245,7 +243,7 @@ function renderBoard() {
     sheetHeader.innerHTML = `
       <span class="sheet-toggle">${isCollapsed ? '▶' : '▼'}</span>
       <span class="sheet-section-name">${escapeHtml(tabKey)}</span>
-      <span class="sheet-section-count">${filtered.length} 個專案</span>
+      <span class="sheet-section-count">${filtered.length} project(s)</span>
     `;
     sheetHeader.addEventListener('click', () => {
       collapsedSheets[tabKey] = !collapsedSheets[tabKey];
@@ -259,7 +257,7 @@ function renderBoard() {
       body.className = 'sheet-section-body';
 
       if (filtered.length === 0) {
-        body.innerHTML = '<p style="color:#555;padding:10px 0;font-size:0.85rem;">無符合條件的專案</p>';
+        body.innerHTML = '<p style="color:#555;padding:10px 0;font-size:0.85rem;">No matching projects</p>';
       } else {
         // Group by customer within this sheet
         const grouped = {};
@@ -273,7 +271,7 @@ function renderBoard() {
           group.innerHTML = `
             <div class="customer-header">
               <h2>${escapeHtml(customer)}</h2>
-              <span class="project-count">${projs.length} 個專案</span>
+              <span class="project-count">${projs.length} project(s)</span>
             </div>
           `;
           const grid = document.createElement('div');
@@ -405,11 +403,11 @@ function openDatePopup(anchorEl, currentDate, label, onApply) {
   const popup = document.createElement('div');
   popup.className = 'date-popup';
   popup.innerHTML = `
-    <label>${label} 日期</label>
+    <label>${label} Date</label>
     <input type="date" lang="en" value="${dateToInput(currentDate)}">
     <div class="date-popup-actions">
-      <button class="btn-clear">清除</button>
-      <button class="btn-apply">確定</button>
+      <button class="btn-clear">Clear</button>
+      <button class="btn-apply">Apply</button>
     </div>
   `;
 
@@ -481,29 +479,79 @@ function getAvgColor(proj) {
 
 // ===== Export =====
 exportBtn.addEventListener('click', () => {
-  if (!workbook) return;
-  const projects = allProjects[currentSheet] || [];
-  const sheet    = workbook.Sheets[currentSheet];
-  const rows     = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
-  let projIdx = 0;
-  for (let i = 0; i < rows.length && projIdx < projects.length; i++) {
-    const row = rows[i];
-    if (!row || !row[COL_PROJECT]) continue;
-    if (String(row[COL_PROJECT]).toUpperCase().includes('POR')) {
-      const pctRowIdx = findPrevDataRowIndex(rows, i);
-      if (pctRowIdx >= 0) {
-        projects[projIdx].stages.forEach((stage, sIdx) => {
-          const cellRef = XLSX.utils.encode_cell({ r: pctRowIdx, c: STAGE_COLS[sIdx] });
-          if (sheet[cellRef]) { sheet[cellRef].v = stage.percent / 100; sheet[cellRef].t = 'n'; }
-        });
+  if (Object.keys(sheetMeta).length === 0) return;
+
+  Object.entries(sheetMeta).forEach(([tabKey, { sheetName, fileName, originalData }]) => {
+    const projects = allProjects[tabKey] || [];
+
+    // Re-read from original bytes so the complete style table is intact
+    const freshWb = XLSX.read(originalData, { cellDates: true, cellNF: false, cellText: false, bookVBA: false, cellStyles: true });
+    const sheet   = freshWb.Sheets[sheetName];
+    if (!sheet) return;
+
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+    let projIdx = 0;
+
+    for (let i = 0; i < rows.length && projIdx < projects.length; i++) {
+      const row = rows[i];
+      if (!row || !row[COL_PROJECT]) continue;
+      if (String(row[COL_PROJECT]).toUpperCase().includes('POR')) {
+        const pctRowIdx = findPrevDataRowIndex(rows, i);
+        if (pctRowIdx >= 0) {
+          projects[projIdx].stages.forEach((stage, sIdx) => {
+            const col = STAGE_COLS[sIdx];
+
+            // ── Percent row ──
+            const pctRef = XLSX.utils.encode_cell({ r: pctRowIdx, c: col });
+            if (sheet[pctRef]) {
+              sheet[pctRef].v = stage.percent / 100;
+              sheet[pctRef].t = 'n';
+            }
+
+            // ── POR date row (row i) ──
+            const porRef = XLSX.utils.encode_cell({ r: i, c: col });
+            if (sheet[porRef]) {
+              const d = dateStringToExcel(stage.porDate);
+              if (d) { sheet[porRef].v = d; sheet[porRef].t = 'd'; }
+              else   { sheet[porRef].v = ''; sheet[porRef].t = 's'; }
+            }
+
+            // ── Actual date row (row i+1) ──
+            const actRef = XLSX.utils.encode_cell({ r: i + 1, c: col });
+            if (sheet[actRef]) {
+              const d = dateStringToExcel(stage.actualDate);
+              if (d) { sheet[actRef].v = d; sheet[actRef].t = 'd'; }
+              else   { sheet[actRef].v = ''; sheet[actRef].t = 's'; }
+            }
+          });
+        }
+        projIdx++;
       }
-      projIdx++;
     }
-  }
-  XLSX.writeFile(workbook, 'project-board-export.xlsx');
+
+    // Each tabKey gets its own freshWb, always export
+    const exportName = fileName.replace(/\.[^.]+$/, '') + '-export.xlsx';
+    const buf  = XLSX.write(freshWb, { bookType: 'xlsx', type: 'array', cellStyles: true });
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = exportName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
 });
 
 // ===== Utility =====
+function dateStringToExcel(str) {
+  if (!str) return null;
+  const parts = str.split('/').map(Number);
+  if (parts.length !== 3 || isNaN(parts[0])) return null;
+  return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+}
+
 function escapeHtml(text) {
   const d = document.createElement('div');
   d.textContent = text;
