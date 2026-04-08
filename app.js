@@ -481,55 +481,66 @@ function getAvgColor(proj) {
 exportBtn.addEventListener('click', () => {
   if (Object.keys(sheetMeta).length === 0) return;
 
+  // Group tabs by file (same originalData reference = same file)
+  const fileGroups = new Map(); // originalData → { fileName, sheets: [{tabKey, sheetName}] }
   Object.entries(sheetMeta).forEach(([tabKey, { sheetName, fileName, originalData }]) => {
-    const projects = allProjects[tabKey] || [];
-
-    // Re-read from original bytes so the complete style table is intact
-    const freshWb = XLSX.read(originalData, { cellDates: true, cellNF: false, cellText: false, bookVBA: false, cellStyles: true });
-    const sheet   = freshWb.Sheets[sheetName];
-    if (!sheet) return;
-
-    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
-    let projIdx = 0;
-
-    for (let i = 0; i < rows.length && projIdx < projects.length; i++) {
-      const row = rows[i];
-      if (!row || !row[COL_PROJECT]) continue;
-      if (String(row[COL_PROJECT]).toUpperCase().includes('POR')) {
-        const pctRowIdx = findPrevDataRowIndex(rows, i);
-        if (pctRowIdx >= 0) {
-          projects[projIdx].stages.forEach((stage, sIdx) => {
-            const col = STAGE_COLS[sIdx];
-
-            // ── Percent row ──
-            const pctRef = XLSX.utils.encode_cell({ r: pctRowIdx, c: col });
-            if (sheet[pctRef]) {
-              sheet[pctRef].v = stage.percent / 100;
-              sheet[pctRef].t = 'n';
-            }
-
-            // ── POR date row (row i) ──
-            const porRef = XLSX.utils.encode_cell({ r: i, c: col });
-            if (sheet[porRef]) {
-              const d = dateStringToExcel(stage.porDate);
-              if (d) { sheet[porRef].v = d; sheet[porRef].t = 'd'; }
-              else   { sheet[porRef].v = ''; sheet[porRef].t = 's'; }
-            }
-
-            // ── Actual date row (row i+1) ──
-            const actRef = XLSX.utils.encode_cell({ r: i + 1, c: col });
-            if (sheet[actRef]) {
-              const d = dateStringToExcel(stage.actualDate);
-              if (d) { sheet[actRef].v = d; sheet[actRef].t = 'd'; }
-              else   { sheet[actRef].v = ''; sheet[actRef].t = 's'; }
-            }
-          });
-        }
-        projIdx++;
-      }
+    if (!fileGroups.has(originalData)) {
+      fileGroups.set(originalData, { fileName, originalData, sheets: [] });
     }
+    fileGroups.get(originalData).sheets.push({ tabKey, sheetName });
+  });
 
-    // Each tabKey gets its own freshWb, always export
+  fileGroups.forEach(({ fileName, originalData, sheets }) => {
+    // One fresh workbook per file — preserves all styles from original bytes
+    const freshWb = XLSX.read(originalData, { cellDates: true, cellNF: false, cellText: false, bookVBA: false, cellStyles: true });
+
+    sheets.forEach(({ tabKey, sheetName }) => {
+      const projects = allProjects[tabKey] || [];
+      const sheet    = freshWb.Sheets[sheetName];
+      if (!sheet) return;
+
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+      let projIdx = 0;
+
+      for (let i = 0; i < rows.length && projIdx < projects.length; i++) {
+        const row = rows[i];
+        if (!row || !row[COL_PROJECT]) continue;
+        if (String(row[COL_PROJECT]).toUpperCase().includes('POR')) {
+          const pctRowIdx = findPrevDataRowIndex(rows, i);
+          if (pctRowIdx >= 0) {
+            projects[projIdx].stages.forEach((stage, sIdx) => {
+              const col = STAGE_COLS[sIdx];
+
+              // ── Percent row ──
+              const pctRef = XLSX.utils.encode_cell({ r: pctRowIdx, c: col });
+              if (sheet[pctRef]) {
+                sheet[pctRef].v = stage.percent / 100;
+                sheet[pctRef].t = 'n';
+              }
+
+              // ── POR date row (row i) ──
+              const porRef = XLSX.utils.encode_cell({ r: i, c: col });
+              if (sheet[porRef]) {
+                const d = dateStringToExcel(stage.porDate);
+                if (d) { sheet[porRef].v = d; sheet[porRef].t = 'd'; }
+                else   { sheet[porRef].v = ''; sheet[porRef].t = 's'; }
+              }
+
+              // ── Actual date row (row i+1) ──
+              const actRef = XLSX.utils.encode_cell({ r: i + 1, c: col });
+              if (sheet[actRef]) {
+                const d = dateStringToExcel(stage.actualDate);
+                if (d) { sheet[actRef].v = d; sheet[actRef].t = 'd'; }
+                else   { sheet[actRef].v = ''; sheet[actRef].t = 's'; }
+              }
+            });
+          }
+          projIdx++;
+        }
+      }
+    });
+
+    // Export once per file
     const exportName = fileName.replace(/\.[^.]+$/, '') + '-export.xlsx';
     const buf  = XLSX.write(freshWb, { bookType: 'xlsx', type: 'array', cellStyles: true });
     const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
